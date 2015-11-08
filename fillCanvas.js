@@ -5,7 +5,9 @@ var screenDelay=1;
 var gridSize = 4;
 var gridSize2 = gridSize*gridSize;
 var serviceFlag = true; // set when operating parameters change
-var Pause = false; // Pause Play button state
+var Pause = true; // Pause Play button state
+var Step = false; // runs through 1 cycle of smooth + FFT when true
+
 var ColorSpace = 2;
 var ColorScale = 255;
 var maxTest = 3*255*255;
@@ -23,6 +25,8 @@ var dbgMinST1 = 10000000;
 var dbgMaxST1 = -10000000;
 var dbgMinST2 = 10000000;
 var dbgMaxST2 = -10000000;
+
+var fftLayer = "All";
 
 var fixedSpots = [];
 
@@ -73,6 +77,8 @@ function gridCell(rc,gc,bc){this.r=rc;this.g=gc;this.b=bc;}
 
 // dataGrid stores graphic data
 var dataGrid = new Array(gridSize2);
+var fftGrid = new Array(gridSize2);
+
 // distanceGrid stores distance coefficients
 var distanceGrid = Array.matrix(gridSize,gridSize,0);
 
@@ -87,53 +93,32 @@ function fillDistanceGrid(){
 }
 
 // fill dataGrid with color objects....
-function fillDataGrid(){
-	for(var i=0;i<gridSize2;i++){
-		dataGrid[i]=new gridCell(rand1(),rand1(),rand1());
+function fillDataGrid(dG, gs2){
+	for(var i=0;i<gs2;i++){
+//  		dG[i]=new gridCell(0,0,0);
+	//if(i%3===0){
+	//	dG[i]=new gridCell(0,0,0);
+	//} else {
+		dG[i]=new gridCell(rand1(),rand1(),rand1());
+	//	dG[i]=new gridCell(255,0,0);
+	//} 
+
 	}
-	dataGrid[fixedSpots[0][2]] = new gridCell(255,0,0); // red
-	dataGrid[fixedSpots[1][2]] = new gridCell(0,255,0); // green
-	dataGrid[fixedSpots[2][2]] = new gridCell(255,0,0); // blue
-	dataGrid[fixedSpots[3][2]] = new gridCell(0,0,0);   // black
+//	dG[fixedSpots[0][2]] = new gridCell(255,0,0); // red
+//	dG[fixedSpots[1][2]] = new gridCell(0,255,0); // green
+//	dG[fixedSpots[2][2]] = new gridCell(0,0,255); // blue
+//	dG[fixedSpots[3][2]] = new gridCell(0,0,0);   // black
 }
 
-function OnChange(param)
-{
-	var dropdownSize = document.getElementById("select1");
-    var dropdownColor = document.getElementById("select2");
-    var dropdownRange = document.getElementById("select4");
-
-    // adjust smoothing range
-    if(param==4){
-    	forceRange = parseInt(dropdownRange.options[dropdownRange.selectedIndex].value);
-    
-    } else {
-	    gridSize = parseInt(dropdownSize.options[dropdownSize.selectedIndex].value);
-	    gridSize2 = gridSize*gridSize;   
-	    dataGrid = new Array(gridSize2);
-	    // create new distance grid
-	    distanceGrid = Array.matrix(gridSize,gridSize,0);
-	    // initialize distance grid 
-	    fillDistanceGrid();
-
-	    // set the fixed color spot locations
-	    setFixedValues();
-
-	    ColorSpace = parseInt(dropdownColor.options[dropdownColor.selectedIndex].value);
-	    ColorScale = Math.floor(255/(ColorSpace-1));
-	    
-	    cycleDelay();
-
-        // generate new grid....
-	    fillDataGrid();	    
-    }
-    
-    screenDraw = 0;
-    serviceFlag = true;
-    
-    return true;
+// fill FFT grid with zeros in RGB elements
+function zeroFFTGrid(fG, gS2){
+	for ( var i = 0; i < gS2; i++){
+		fG[i] = new gridCell(0,0,0);
+	}
 }
 
+
+// draw raw graphics pattern
 function drawCanvas1(){
 	var c=document.getElementById("drawHere");
 	var ctx=c.getContext("2d");
@@ -151,6 +136,48 @@ function drawCanvas1(){
 		var x = squareCol*squareSide;
 		
 		var t='rgba('+dataGrid[i].r+','+ dataGrid[i].g+','+dataGrid[i].b+',255)';
+		ctx.fillStyle = t;
+		ctx.fillRect(x,y,squareSide,squareSide);
+    }
+   	ctx.stroke();
+}
+
+
+// draw raw graphics pattern
+function drawFFTCanvas(){
+	var c=document.getElementById("drawFFT2D");
+	var ctx=c.getContext("2d");
+	var myScreen = 800;
+	var myScreen2 = myScreen*myScreen*4;
+	var myScreen4 = myScreen*4;
+	var scaler =myScreen/gridSize; 
+	ctx.beginPath();
+	var squareSide = myScreen/gridSize;
+	for(var i = 0; i< gridSize2;i++){
+		var squareRow = Math.floor(i/gridSize);
+		var squareCol = Math.floor(i%gridSize);
+
+		var y = squareRow*squareSide;
+		var x = squareCol*squareSide;
+		var t= '';
+		switch(fftLayer){
+			case "All":
+				t='rgba('+fftGrid[i].r+','+ fftGrid[i].g+','+fftGrid[i].b+',255)';
+				break;		
+			case "Red":
+				t='rgba('+fftGrid[i].r+','+ 0+','+0+',255)';
+				break;		
+			case "Green":
+				t='rgba('+0+','+ fftGrid[i].g+','+0+',255)';
+				break;		
+			case "Blue":
+				t='rgba('+0+','+ 0+','+fftGrid[i].b+',255)';
+				break;		
+			 
+		    default:
+  				t='rgba('+fftGrid[i].r+','+ fftGrid[i].g+','+fftGrid[i].b+',255)';
+		    	break;
+		}
 		ctx.fillStyle = t;
 		ctx.fillRect(x,y,squareSide,squareSide);
     }
@@ -190,6 +217,82 @@ function drawCanvas2(iIndex1, jIndex1, iIndex2, jIndex2){
     
 	ctx.stroke();
 }
+
+
+// reset grid related values
+function reconfigureGridRelatedStructures(dropdownSize, dropdownColor, dropdownRange){
+	    gridSize = parseInt(dropdownSize.options[dropdownSize.selectedIndex].value);
+	    gridSize2 = gridSize*gridSize;   
+	    dataGrid = new Array(gridSize2);
+	    fftGrid = new Array(gridSize2);
+	    
+	    // create new distance grid
+	    distanceGrid = Array.matrix(gridSize,gridSize,0);
+	    // initialize distance grid 
+	    fillDistanceGrid();
+
+	    // set the fixed color spot locations
+	    setFixedValues();
+
+	    ColorSpace = parseInt(dropdownColor.options[dropdownColor.selectedIndex].value);
+	    ColorScale = Math.floor(255/(ColorSpace-1));
+	    
+	    cycleDelay();
+
+        // generate new grid....
+	    fillDataGrid(dataGrid, gridSize2);	    
+	    zeroFFTGrid(fftGrid, gridSize2);
+        screenDraw = 0;
+}
+
+// handle html button presses
+function OnChange(param)
+{
+	var dropdownSize = document.getElementById("select1");
+    var dropdownColor = document.getElementById("select2");
+    var dropdownRange = document.getElementById("select4");
+    fftLayer = document.getElementById("selectFFTL").value;
+
+    // adjust smoothing range
+    if(param==4){
+    	forceRange = parseInt(dropdownRange.options[dropdownRange.selectedIndex].value);
+    
+    } else if(param==5){
+    	// already read in the new parameter fftLayer
+    	var a=0; // for break point...
+    } else {
+// 	    gridSize = parseInt(dropdownSize.options[dropdownSize.selectedIndex].value);
+// 	    gridSize2 = gridSize*gridSize;   
+// 	    dataGrid = new Array(gridSize2);
+// 	    fftGrid = new Array(gridSize2);
+// 	    
+// 	    // create new distance grid
+// 	    distanceGrid = Array.matrix(gridSize,gridSize,0);
+// 	    // initialize distance grid 
+// 	    fillDistanceGrid();
+// 
+// 	    // set the fixed color spot locations
+// 	    setFixedValues();
+// 
+// 	    ColorSpace = parseInt(dropdownColor.options[dropdownColor.selectedIndex].value);
+// 	    ColorScale = Math.floor(255/(ColorSpace-1));
+// 	    
+// 	    cycleDelay();
+// 
+//         // generate new grid....
+// 	    fillDataGrid(dataGrid, gridSize2);	    
+// 	    zeroFFTGrid(fftGrid, gridSize2);
+//         screenDraw = 0;
+
+		reconfigureGridRelatedStructures(dropdownSize, dropdownColor, dropdownRange);
+    }
+	drawCanvas1(); 
+	drawFFTCanvas();
+    serviceFlag = true;
+    
+//    return true;
+}
+
 
 // color differences squared only
 
@@ -302,8 +405,6 @@ function fitColorAll(i1,j1,i2,j2,force1){
 	trade(i1,j1,i2,j2);
 	return force1 + force2 - force1At2 - force2At1;
 }
-
-
 
 // Test swaps with all nearest neighbors
 function testCellNeighborsOverGrid(i1,j1){
@@ -524,27 +625,43 @@ function smooth(){
 	
 	//middleSwap();
 	vectorSwap();
+	fftGrid = fft2d(dataGrid, gridSize);
 }
 
 function cycle(myVarr){
-	smooth();
 	drawCanvas1(); 
+	drawFFTCanvas();
+	smooth();
 	if(serviceFlag){
 		clearInterval(myVarr);
-		start();
+		if(Step===false){
+				startLooping();
+		}
 	}
 }
 
 var myVar;
 
-function start(){
+
+function startLooping(){
 	myVar=setInterval(function(){cycle(myVar)},screenDelay);
 	Pause = false;
+}
+
+// start repeating operations
+function start(){
+	Step = false;
+	startLooping();
 }
 
 function stop(){
 	clearInterval(myVar); 
 	Pause = true;
+}
+
+function step(){
+	Step = true;
+	cycle(myVar);
 }
 
 function cycleDelay(){
@@ -563,10 +680,10 @@ function PausePlay(){
 	if(!Pause){start();	document.getElementById("PausePlay").innerHTML="Pause";}
 }
 
-fillDistanceGrid();
-OnChange();
-drawCanvas1();
-start();
+//fillDistanceGrid();
+OnChange(0);
+//drawCanvas1();
+//start();
 
 function SaveData(){
 	stop();
